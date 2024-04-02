@@ -17,5 +17,5 @@ __all__ = [
     'SetEpochInfoHook', 'MemoryProfilerHook', 'DetVisualizationHook',
     'NumClassCheckHook', 'MeanTeacherHook', 'trigger_visualization_hook',
     'PipelineSwitchHook', 'TrackVisualizationHook',
-    'GroundingVisualizationHook'
+    'GroundingVisualizationHook', 'MlflowLoggerHook'
 ]
