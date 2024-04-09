@@ -15,7 +15,7 @@ from mmdet.utils import replace_cfg_vals, update_data_root
 
 import pycocotools.mask as mask_util
 import cv2
-from shapely.geometry import Polygon
+import json
 
 # Er zit nog een argument in voor non-maximum suppression IoU treshold. Voor instance segmentation is deze niet nodig, maar ik ben er nog niet aan toegekomen om dit argument eruit te halen
 # Voor nu dit argument negeren...
@@ -152,7 +152,7 @@ def plot_confusion_matrix(confusion_matrix,
                           labels,
                           save_dir=None,
                           show=True,
-                          title='Normalized Confusion Matrix',
+                          title='Confusion Matrix',
                           color_theme='plasma'):
     """Draw confusion matrix with matplotlib.
 
@@ -172,7 +172,7 @@ def plot_confusion_matrix(confusion_matrix,
 
     num_classes = len(labels)
     fig, ax = plt.subplots(
-        figsize=(0.5 * num_classes, 0.5 * num_classes * 0.8), dpi=180)
+        figsize=(4, 4), dpi=180)
     cmap = plt.get_cmap(color_theme)
     im = ax.imshow(confusion_matrix, cmap=cmap)
     plt.colorbar(mappable=im, ax=ax)
@@ -232,24 +232,6 @@ def plot_confusion_matrix(confusion_matrix,
         plt.show()
 
 ##################################################################################################################################################
-# My own functions
-def compressed_mask_to_polygon(compressed_mask):
-    # Compressed mask to NumPy-array binary mask
-    decompressed_mask = mask_util.decode(compressed_mask)
-
-    # NumPy-array binary mask to COCO-style segmentation polygon in the form of [x1, y1, x2, y2, ..., xn, yn]
-    contours, _ = cv2.findContours(decompressed_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    segmentation = []
-    for contour in contours:
-        contour = contour.flatten().tolist()
-        segmentation.extend(contour)
-
-    # Make a closed polygon; last point is equal to first point
-    if segmentation[:2] != segmentation[-2:]:
-        segmentation.append(segmentation[0])
-        segmentation.append(segmentation[1])
-    return segmentation
-
 def segmentation_overlaps(seg_masks1, seg_masks2, eps=1e-6):
     # Initiate iou matrix
     rows = len(seg_masks1)
@@ -279,6 +261,31 @@ def coordinates_to_binary_mask(mask_data):
     cv2.fillPoly(binary_mask, [points], color=1)
     return binary_mask
 
+def make_metrics_json(confusion_matrix, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
+    # Deze functie heb ik gemaakt voor 1 klasse (en achtergrond) en werkt dus niet voor multiclass
+    true_pos = confusion_matrix[0, 0]
+    false_pos = confusion_matrix[0, 1]
+    false_neg = confusion_matrix[1, 0]
+
+    precision = true_pos / (true_pos + false_pos)
+    recall = true_pos / (true_pos + false_neg)
+
+    f1_score = 2 * (precision * recall)/(precision + recall)
+
+    outfile_contents = {"IoU_treshold": tp_iou_thr,
+                        "score_treshold": score_thr,
+                        "precision": precision,
+                        "recall": recall,
+                        "F1_score": f1_score}
+    
+    outfile_name = "metrics.json"
+    if save_dir is not None:
+        outfile_name = os.path.join(save_dir, outfile_name)
+
+    with open(outfile_name, 'w') as outfile:
+        json.dump(outfile_contents, outfile)
+
+#############################################################################################################
 
 def main():
     args = parse_args()
@@ -312,6 +319,8 @@ def main():
         save_dir=args.save_dir,
         show=args.show,
         color_theme=args.color_theme)
+    
+    make_metrics_json(confusion_matrix, args.score_thr, args.tp_iou_thr, save_dir=args.save_dir)
 
 if __name__ == '__main__':
     main()
