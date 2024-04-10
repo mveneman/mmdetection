@@ -77,16 +77,19 @@ def calculate_confusion_matrix(dataset,
     """
     num_classes = len(dataset.metainfo['classes'])
     confusion_matrix = np.zeros(shape=[num_classes + 1, num_classes + 1])
+    mean_iou_list = []
     assert len(dataset) == len(results)
     prog_bar = ProgressBar(len(results))
     for idx, per_img_res in enumerate(results):
         print(idx)
         res_bboxes = per_img_res['pred_instances']
         gts = dataset.get_data_info(idx)['instances']
-        analyze_per_img_dets(confusion_matrix, gts, res_bboxes, score_thr,
-                             tp_iou_thr)
+        image_mean_iou = analyze_per_img_dets(confusion_matrix, gts, res_bboxes, score_thr, tp_iou_thr)
+        if image_mean_iou is not None:
+            mean_iou_list.append(image_mean_iou)
         prog_bar.update()
-    return confusion_matrix
+    mean_iou = np.mean(mean_iou_list)
+    return confusion_matrix, mean_iou
 
 
 def analyze_per_img_dets(confusion_matrix,
@@ -123,6 +126,7 @@ def analyze_per_img_dets(confusion_matrix,
     gt_labels = np.array(gt_labels)
 
     unique_label = np.unique(result['labels'].numpy())
+    image_iou_values = []
 
     for det_label in unique_label:
         mask = (result['labels'] == det_label)
@@ -140,12 +144,19 @@ def analyze_per_img_dets(confusion_matrix,
                         det_match += 1
                         if gt_label == det_label:
                             true_positives[j] += 1  # TP
+                            image_iou_values.append(ious[i, j])
                         confusion_matrix[gt_label, det_label] += 1
                 if det_match == 0:  # BG FP
                     confusion_matrix[-1, det_label] += 1
     for num_tp, gt_label in zip(true_positives, gt_labels):
         if num_tp == 0:  # FN
             confusion_matrix[gt_label, -1] += 1
+
+    if image_iou_values: 
+        mean_iou = np.mean(image_iou_values)
+    else: 
+        mean_iou = None
+    return mean_iou  
 
 
 def plot_confusion_matrix(confusion_matrix,
@@ -261,7 +272,7 @@ def coordinates_to_binary_mask(mask_data):
     cv2.fillPoly(binary_mask, [points], color=1)
     return binary_mask
 
-def make_metrics_json(confusion_matrix, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
+def make_metrics_json(confusion_matrix, mean_iou, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
     # Deze functie heb ik gemaakt voor 1 klasse (en achtergrond) en werkt dus niet voor multiclass
     true_pos = confusion_matrix[0, 0]
     false_pos = confusion_matrix[0, 1]
@@ -276,7 +287,8 @@ def make_metrics_json(confusion_matrix, score_thr = 0, tp_iou_thr = 0.5, save_di
                         "score_treshold": score_thr,
                         "precision": precision,
                         "recall": recall,
-                        "F1_score": f1_score}
+                        "F1_score": f1_score,
+                        "mean_IoU": float(mean_iou)}
     
     outfile_name = "metrics.json"
     if save_dir is not None:
@@ -310,9 +322,9 @@ def main():
 
     dataset = DATASETS.build(cfg.test_dataloader.dataset)
 
-    confusion_matrix = calculate_confusion_matrix(dataset, results,
-                                                  args.score_thr,
-                                                  args.tp_iou_thr)
+    confusion_matrix, mean_iou = calculate_confusion_matrix(dataset, results,
+                                                            args.score_thr,
+                                                            args.tp_iou_thr)
     plot_confusion_matrix(
         confusion_matrix,
         dataset.metainfo['classes'] + ('background', ),
@@ -320,7 +332,7 @@ def main():
         show=args.show,
         color_theme=args.color_theme)
     
-    make_metrics_json(confusion_matrix, args.score_thr, args.tp_iou_thr, save_dir=args.save_dir)
+    make_metrics_json(confusion_matrix, mean_iou, args.score_thr, args.tp_iou_thr, save_dir=args.save_dir)
 
 if __name__ == '__main__':
     main()
