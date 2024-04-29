@@ -16,6 +16,7 @@ from mmdet.utils import replace_cfg_vals, update_data_root
 import pycocotools.mask as mask_util
 import cv2
 import json
+from statistics import mean
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -75,25 +76,24 @@ def calculate_confusion_matrix(dataset,
     num_classes = len(dataset.metainfo['classes'])
     confusion_matrix = np.zeros(shape=[num_classes + 1, num_classes + 1])
 
-    mean_tp_iou_list = []
-    total_mean_iou_list = []
+    total_iou_list = []
 
     assert len(dataset) == len(results)
     prog_bar = ProgressBar(len(results))
     for idx, per_img_res in enumerate(results):
         res_bboxes = per_img_res['pred_instances']
         gts = dataset.get_data_info(idx)['instances']
-        image_tp_iou, image_total_iou = analyze_per_img_dets(confusion_matrix, gts, res_bboxes, score_thr, tp_iou_thr)
+        image_iou_arrays = analyze_per_img_dets(confusion_matrix, gts, res_bboxes, score_thr, tp_iou_thr)
 
-        if image_tp_iou is not None:
-            mean_tp_iou_list.append(image_tp_iou)
-        if image_total_iou is not None:
-            total_mean_iou_list.append(image_total_iou)
+        # Add the IoU values to the total list
+        for iou_list in image_iou_arrays:
+            for det_label_iou_array in iou_list:
+                total_iou_list.append(det_label_iou_array)
 
         prog_bar.update()
-    tp_mean_iou = np.mean(mean_tp_iou_list)
-    total_mean_iou = np.mean(total_mean_iou_list)
-    return confusion_matrix, tp_mean_iou, total_mean_iou
+
+    mean_iou_value = mean(total_iou_list)
+    return confusion_matrix, mean_iou_value
 
 
 def analyze_per_img_dets(confusion_matrix,
@@ -130,8 +130,7 @@ def analyze_per_img_dets(confusion_matrix,
     gt_labels = np.array(gt_labels)
 
     unique_label = np.unique(result['labels'].numpy())
-    image_tp_iou_values = []
-    total_mean_iou = None
+    image_ious = []
 
     for det_label in unique_label:
         mask = (result['labels'] == det_label)
@@ -141,7 +140,9 @@ def analyze_per_img_dets(confusion_matrix,
         polygon_det_masks = [mask_util.decode(det_mask) for det_mask in compressed_det_masks]
             
         ious = segmentation_overlaps(polygon_det_masks, gt_masks)
-        total_mean_iou = calculate_mean_iou(ious)
+        if ious.size != 0:
+            det_label_ious = get_counting_ious(ious)
+            image_ious.append(det_label_ious)
 
         for i, score in enumerate(det_scores):
             det_match = 0
@@ -151,7 +152,6 @@ def analyze_per_img_dets(confusion_matrix,
                         det_match += 1
                         if gt_label == det_label:
                             true_positives[j] += 1  # TP
-                            image_tp_iou_values.append(ious[i, j])
                         confusion_matrix[gt_label, det_label] += 1
                 if det_match == 0:  # BG FP
                     confusion_matrix[-1, det_label] += 1
@@ -159,11 +159,7 @@ def analyze_per_img_dets(confusion_matrix,
         if num_tp == 0:  # FN
             confusion_matrix[gt_label, -1] += 1
 
-    if image_tp_iou_values: 
-        mean_tp_iou = np.mean(image_tp_iou_values)
-    else: 
-        mean_tp_iou = None
-    return mean_tp_iou, total_mean_iou  
+    return image_ious  
 
 
 def plot_confusion_matrix(confusion_matrix,
@@ -249,7 +245,7 @@ def plot_confusion_matrix(confusion_matrix,
     if show:
         plt.show()
 
-##################################################################################################################################################
+
 def segmentation_overlaps(seg_masks1, seg_masks2, eps=1e-6):
     # Initiate iou matrix
     rows = len(seg_masks1)
@@ -270,6 +266,7 @@ def segmentation_overlaps(seg_masks1, seg_masks2, eps=1e-6):
             overlaps[i, j] = intersection_area / union_area
     return overlaps
 
+
 def coordinates_to_binary_mask(mask_data):
     # Let op, hardcoded! Dit zou in theorie uit de afbeeldingsinformatie kunnen worden gehaald.
     image_size = (1024, 1024)
@@ -279,7 +276,8 @@ def coordinates_to_binary_mask(mask_data):
     cv2.fillPoly(binary_mask, [points], color=1)
     return binary_mask
 
-def make_metrics_json(confusion_matrix, mean_tp_iou, total_mean_iou, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
+
+def make_metrics_json(confusion_matrix, total_mean_iou, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
     # Deze functie heb ik gemaakt voor 1 klasse (en achtergrond) en werkt dus niet voor multiclass
     true_pos = confusion_matrix[0, 0]
     false_pos = confusion_matrix[0, 1]
@@ -295,7 +293,6 @@ def make_metrics_json(confusion_matrix, mean_tp_iou, total_mean_iou, score_thr =
                         "precision": precision,
                         "recall": recall,
                         "F1_score": f1_score,
-                        "mean_tp_IoU": float(mean_tp_iou),
                         "total_mean_IoU": float(total_mean_iou)}
     
     outfile_name = "metrics.json"
@@ -305,14 +302,28 @@ def make_metrics_json(confusion_matrix, mean_tp_iou, total_mean_iou, score_thr =
     with open(outfile_name, 'w') as outfile:
         json.dump(outfile_contents, outfile)
 
-def calculate_mean_iou(iou_matrix):
+
+def get_counting_ious(iou_matrix):
+    # Get the maximum IoU for every segmentation
     if iou_matrix.size == 0:
-        return None
+        return np.zeros((0, 0))
     else:
         max_of_each_row = np.max(iou_matrix, axis = 1)
-        return(np.mean(max_of_each_row))
+    return max_of_each_row
 
-#############################################################################################################
+
+# Op dit moment niet gebruikt, omdat het al in één lijst wordt gegooid
+def calculate_mean_iou(iou_array):
+    # Concat the individual images arrays to one array
+    concat_array = np.concatenate(iou_array)
+    print(concat_array)
+
+    if len(concat_array) == 0:
+        total_average = 0
+    else:
+        total_average = np.mean(concat_array)
+    return total_average
+
 
 def main():
     args = parse_args()
@@ -337,10 +348,8 @@ def main():
 
     dataset = DATASETS.build(cfg.test_dataloader.dataset)
 
-    confusion_matrix, mean_tp_iou, total_mean_iou = calculate_confusion_matrix(dataset, 
-                                                                               results,
-                                                                               args.score_thr,
-                                                                               args.tp_iou_thr)
+    confusion_matrix, total_mean_iou = calculate_confusion_matrix(dataset,results,
+                                                                  args.score_thr, args.tp_iou_thr)
     
     plot_confusion_matrix(
         confusion_matrix,
@@ -349,7 +358,7 @@ def main():
         show=args.show,
         color_theme=args.color_theme)
     
-    make_metrics_json(confusion_matrix, mean_tp_iou, total_mean_iou, args.score_thr, args.tp_iou_thr, save_dir=args.save_dir)
+    make_metrics_json(confusion_matrix, total_mean_iou, args.score_thr, args.tp_iou_thr, save_dir=args.save_dir)
 
 if __name__ == '__main__':
     main()
