@@ -136,10 +136,11 @@ def analyze_per_img_dets(confusion_matrix,
         mask = (result['labels'] == det_label)
         mask_np = np.array(mask)
         det_scores = result['scores'][mask].numpy()
+        # Get the detected masks; from compressed to binary masks as numpy arrays
         compressed_det_masks = [result['masks'][i] for i in range(len(mask_np)) if mask_np[i]]
-        polygon_det_masks = [mask_util.decode(det_mask) for det_mask in compressed_det_masks]
+        binary_det_masks = [mask_util.decode(det_mask) for det_mask in compressed_det_masks]
             
-        ious = segmentation_overlaps(polygon_det_masks, gt_masks)
+        ious = segmentation_overlaps(binary_det_masks, gt_masks)
         if ious.size != 0:
             det_label_ious = get_counting_ious(ious)
             image_ious.append(det_label_ious)
