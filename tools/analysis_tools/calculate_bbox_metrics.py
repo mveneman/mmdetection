@@ -239,8 +239,8 @@ def plot_confusion_matrix(confusion_matrix,
 def make_metrics_json(confusion_matrix, score_thr = 0, tp_iou_thr = 0.5, save_dir=None):
     # Deze functie heb ik gemaakt voor 1 klasse (en achtergrond) en werkt dus niet voor multiclass
     true_pos = confusion_matrix[0, 0]
-    false_pos = confusion_matrix[0, 1]
-    false_neg = confusion_matrix[1, 0]
+    false_neg = confusion_matrix[0, 1]
+    false_pos = confusion_matrix[1, 0]
 
     precision = true_pos / (true_pos + false_pos)
     recall = true_pos / (true_pos + false_neg)
