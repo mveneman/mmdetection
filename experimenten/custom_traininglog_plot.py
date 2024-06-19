@@ -2,7 +2,7 @@ import json
 import matplotlib.pyplot as plt
 
 
-def make_train_validation_plot(log_file_path):
+def make_train_validation_plot(log_file_path, experiment_name=""):
     # Initialize lists to store training loss and validation coco/segm_mAP
     training_loss = []
     validation_coco_segm_mAP = []
@@ -37,10 +37,10 @@ def make_train_validation_plot(log_file_path):
     
     # Making the plot
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, len(training_loss) + 1), training_loss, label='Training Loss', marker='o')
-    plt.plot(validation_epochs, validation_coco_segm_mAP, label='Validation coco/segm_mAP', marker='o')
+    plt.plot(range(1, len(training_loss) + 1), training_loss, color = '#015293', label='Training Loss', marker='o')
+    plt.plot(validation_epochs, validation_coco_segm_mAP, color = '#66b0c9', label='Validation coco/segm_mAP', marker='o')
 
-    plt.title('Training Loss and Validation coco/segm_mAP')
+    plt.title('Training Loss and Validation coco/segm_mAP' + '\n' + experiment_name)
     plt.xlabel('Epochs')
     plt.ylabel('Loss / coco/segm_mAP')
     plt.legend()

@@ -4,7 +4,6 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MultipleLocator
-from mmcv.ops import nms
 from mmengine import Config, DictAction
 from mmengine.fileio import load
 from mmengine.registry import init_default_scope
@@ -67,9 +66,6 @@ def calculate_confusion_matrix(dataset,
         results (list[ndarray]): A list of detection results in each image.
         score_thr (float|optional): Score threshold to filter bboxes.
             Default: 0.
-        nms_iou_thr (float|optional): nms IoU threshold, the detection results
-            have done nms in the detector, only applied when users want to
-            change the nms IoU threshold. Default: None.
         tp_iou_thr (float|optional): IoU threshold to be considered as matched.
             Default: 0.5.
     """
@@ -114,9 +110,6 @@ def analyze_per_img_dets(confusion_matrix,
             Default: 0.
         tp_iou_thr (float): IoU threshold to be considered as matched.
             Default: 0.5.
-        nms_iou_thr (float|optional): nms IoU threshold, the detection results
-            have done nms in the detector, only applied when users want to
-            change the nms IoU threshold. Default: None.
     """
 
     true_positives = np.zeros(len(gts))
@@ -130,6 +123,8 @@ def analyze_per_img_dets(confusion_matrix,
     gt_labels = np.array(gt_labels)
 
     unique_label = np.unique(result['labels'].numpy())
+    
+    # When calculating mIoU the score treshold isn't used...
     image_ious = []
 
     for det_label in unique_label:
@@ -311,19 +306,6 @@ def get_counting_ious(iou_matrix):
     else:
         max_of_each_row = np.max(iou_matrix, axis = 1)
     return max_of_each_row
-
-
-# Op dit moment niet gebruikt, omdat het al in één lijst wordt gegooid
-def calculate_mean_iou(iou_array):
-    # Concat the individual images arrays to one array
-    concat_array = np.concatenate(iou_array)
-    print(concat_array)
-
-    if len(concat_array) == 0:
-        total_average = 0
-    else:
-        total_average = np.mean(concat_array)
-    return total_average
 
 
 def main():
